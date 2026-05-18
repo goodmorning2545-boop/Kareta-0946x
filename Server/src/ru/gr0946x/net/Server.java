@@ -1,33 +1,31 @@
 package ru.gr0946x.net;
 
-import java.io.BufferedReader;
+import ru.gr0946x.net.db.MessageRepository;
+import ru.gr0946x.net.db.UserRepository;
+
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.ServerSocket;
 
 public class Server {
-
     private boolean isActive;
-    public Server(int port){
+
+    public Server(int port, UserRepository userRepo, MessageRepository msgRepo) {
         isActive = true;
-        new Thread(()->{
+        new Thread(() -> {
             try (var serverSocket = new ServerSocket(port)) {
-                System.out.println("Сервер запущен");
+                System.out.println("[Server] Запущен на порту " + port);
                 while (isActive) {
-                    try{
+                    try {
                         var socket = serverSocket.accept();
-                        System.out.println("Клиент подключен");
-                        var connClient = new ConnectedClient(socket);
-                        connClient.start();
+                        System.out.println("[Server] Новое подключение: " + socket.getInetAddress());
+                        var client = new ConnectedClient(socket, userRepo, msgRepo);
+                        client.start();
                     } catch (Exception e) {
-                        System.out.println("Ошибка подключения клиентов...");
-                        System.out.println(e.getMessage());
-                        isActive = false;
+                        System.err.println("[Server] Ошибка подключения: " + e.getMessage());
                     }
                 }
             } catch (IOException e) {
-                System.out.println("Ошибка включения сервера");
+                System.err.println("[Server] Ошибка запуска: " + e.getMessage());
             }
         }).start();
     }

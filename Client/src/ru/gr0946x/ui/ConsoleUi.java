@@ -28,7 +28,7 @@ public class ConsoleUi implements Ui{
     @Override
     public void showInfo(String data, MessageType type) {
         switch (type){
-            case MESSAGE -> {
+            case MSG -> {
                 var message = data.split(
                         ProtocolConstants.AUTHOR_SEPARATOR,
                         2
