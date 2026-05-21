@@ -1,20 +1,25 @@
 package ru.gr0946x.net;
 
-import ru.gr0946x.net.db.MessageRepository;
-import ru.gr0946x.net.db.UserRepository;
+import org.mindrot.jbcrypt.BCrypt;
+import ru.gr0946x.net.entity.MessageEntity;
+import ru.gr0946x.net.entity.UserEntity;
+import ru.gr0946x.net.repository.MessageRepository;
+import ru.gr0946x.net.repository.UserRepository;
 
 import java.io.IOException;
 import java.net.Socket;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class ConnectedClient {
 
     private final Communicator communicator;
     private static final List<ConnectedClient> clients = new ArrayList<>();
 
-    private String username = null;  // null = ещё не авторизован
-    private int userId = -1;
+    private String username = null;
+    private UserEntity userEntity = null;
 
     private final UserRepository userRepo;
     private final MessageRepository msgRepo;
@@ -33,23 +38,18 @@ public class ConnectedClient {
 
     public void start() {
         communicator.start();
-        // Просим клиента авторизоваться
-        sendData(ProtocolConstants.authFail("Требуется вход. Отправьте LOGIN:user:pass или REGISTER:user:pass"));
+        sendData(ProtocolConstants.authFail("Требуется вход. LOGIN:user:pass или REGISTER:user:pass"));
     }
 
     public void sendData(String data) {
         communicator.sendData(data);
     }
 
-    // ── Разбор входящих строк ────────────────────────────────────────────
-
     private void parseData(String raw) {
         System.out.println("[Server] Получено от " + username + ": " + raw);
         MessageType type = ProtocolConstants.parseType(raw);
 
-
         if (username == null) {
-            // До авторизации принимаем только LOGIN и REGISTER
             switch (type) {
                 case LOGIN    -> handleLogin(raw);
                 case REGISTER -> handleRegister(raw);
@@ -58,28 +58,25 @@ public class ConnectedClient {
             }
         } else {
             switch (type) {
-                case MSG             -> handleMsg(raw);
-                case BROADCAST       -> handleBroadcast(raw);
-                case HISTORY_REQUEST -> handleHistory(raw);
-                case SEARCH_REQUEST  -> handleSearch(raw);
-                case DISCONNECT      -> stop();
+                case MSG              -> handleMsg(raw);
+                case BROADCAST        -> handleBroadcast(raw);
+                case HISTORY_REQUEST  -> handleHistory(raw);
+                case SEARCH_REQUEST   -> handleSearch(raw);
                 case USER_LIST_REQUEST -> broadcastUserList();
-                default              -> sendData(ProtocolConstants.authFail("Неизвестная команда"));
+                case DISCONNECT       -> stop();
+                default               -> sendData(ProtocolConstants.authFail("Неизвестная команда"));
             }
         }
     }
 
-    // ── Авторизация ──────────────────────────────────────────────────────
-
     private void handleLogin(String raw) {
-        // LOGIN:username:password
-        String[] p = ProtocolConstants.parts(raw, 2); // ["username", "password"]
+        String[] p = ProtocolConstants.parts(raw, 2);
         if (p.length < 2) { sendData(ProtocolConstants.authFail("Формат: LOGIN:имя:пароль")); return; }
         String name = p[0].trim();
         String pass = p[1].trim();
 
-        var opt = userRepo.findByUsername(name);
-        if (opt.isEmpty() || !opt.get().password().equals(pass)) {
+        Optional<UserEntity> opt = userRepo.findByUsernameIgnoreCase(name);
+        if (opt.isEmpty() || !BCrypt.checkpw(pass, opt.get().getPassword())) {
             sendData(ProtocolConstants.authFail("Неверный логин или пароль"));
             return;
         }
@@ -87,13 +84,12 @@ public class ConnectedClient {
             sendData(ProtocolConstants.authFail("Пользователь уже в сети"));
             return;
         }
-        userId   = opt.get().id();
-        username = opt.get().username();
+        userEntity = opt.get();
+        username   = userEntity.getUsername();
         finishAuth();
     }
 
     private void handleRegister(String raw) {
-        // REGISTER:username:password
         String[] p = ProtocolConstants.parts(raw, 2);
         if (p.length < 2) { sendData(ProtocolConstants.authFail("Формат: REGISTER:имя:пароль")); return; }
         String name = p[0].trim();
@@ -107,12 +103,13 @@ public class ConnectedClient {
             sendData(ProtocolConstants.authFail("Пароль минимум 4 символа"));
             return;
         }
-        if (!userRepo.register(name, pass)) {
+        if (userRepo.existsByUsernameIgnoreCase(name)) {
             sendData(ProtocolConstants.authFail("Имя уже занято"));
             return;
         }
-        userId   = userRepo.findByUsername(name).get().id();
-        username = name.toLowerCase();
+        String hashed = BCrypt.hashpw(pass, BCrypt.gensalt());
+        userEntity = userRepo.save(new UserEntity(name.toLowerCase(), hashed));
+        username   = userEntity.getUsername();
         finishAuth();
     }
 
@@ -122,8 +119,6 @@ public class ConnectedClient {
         broadcastInfo(username + " вошёл в чат");
         System.out.println("[Server] " + username + " авторизован.");
     }
-
-    // ── Сообщения ────────────────────────────────────────────────────────
 
     private void handleMsg(String raw) {
         String[] p = ProtocolConstants.parts(raw, 3);
@@ -137,8 +132,9 @@ public class ConnectedClient {
             return;
         }
 
-        var peerId = userRepo.findIdByUsername(to);
-        peerId.ifPresent(rid -> msgRepo.save(userId, rid, text));
+        userRepo.findByUsernameIgnoreCase(to).ifPresent(toEntity ->
+                msgRepo.save(new MessageEntity(userEntity, toEntity, text, LocalDateTime.now()))
+        );
 
         String line = ProtocolConstants.msg(username, to, text);
         recipient.sendData(line);
@@ -146,12 +142,11 @@ public class ConnectedClient {
     }
 
     private void handleBroadcast(String raw) {
-        // BROADCAST:от:текст
-        String[] p = ProtocolConstants.parts(raw, 2); // ["от", "текст"]
+        String[] p = ProtocolConstants.parts(raw, 2);
         if (p.length < 2) return;
         String text = p[1];
 
-        msgRepo.save(userId, null, text);
+        msgRepo.save(new MessageEntity(userEntity, null, text, LocalDateTime.now()));
         String line = ProtocolConstants.broadcast(username, text);
         synchronized (clients) {
             clients.stream()
@@ -160,43 +155,43 @@ public class ConnectedClient {
         }
     }
 
-    // ── История ──────────────────────────────────────────────────────────
-
     private void handleHistory(String raw) {
-        // HISTORY_REQUEST:собеседник
         String peer = ProtocolConstants.payload(raw).trim();
-        var peerId  = userRepo.findIdByUsername(peer);
-        if (peerId.isEmpty()) return;
-
-        var history = msgRepo.getHistory(userId, peerId.get(), ProtocolConstants.HISTORY_LIMIT);
-        // История в БД хранится от новых к старым — разворачиваем
-        for (int i = history.size() - 1; i >= 0; i--) {
-            var m = history.get(i);
-            sendData(ProtocolConstants.historyItem(m.senderName(), m.receiverName(), m.text(), m.sentAt()));
-        }
-        sendData(ProtocolConstants.historyEnd());
+        userRepo.findByUsernameIgnoreCase(peer).ifPresent(peerEntity -> {
+            var history = msgRepo.findHistory(
+                    userEntity, peerEntity, ProtocolConstants.HISTORY_LIMIT);
+            for (int i = history.size() - 1; i >= 0; i--) {
+                var m = history.get(i);
+                String receiverName = m.getReceiver() != null ? m.getReceiver().getUsername() : "all";
+                sendData(ProtocolConstants.historyItem(
+                        m.getSender().getUsername(),
+                        receiverName,
+                        m.getText(),
+                        m.getSentAt().toString()));
+            }
+            sendData(ProtocolConstants.historyEnd());
+        });
     }
 
-    // ── Поиск ────────────────────────────────────────────────────────────
-
     private void handleSearch(String raw) {
-        // SEARCH_REQUEST:собеседник:ключевое_слово
         String[] p = ProtocolConstants.parts(raw, 2);
         if (p.length < 2) return;
         String peer    = p[0].trim();
         String keyword = p[1].trim();
 
-        var peerId = userRepo.findIdByUsername(peer);
-        if (peerId.isEmpty()) return;
-
-        var results = msgRepo.search(userId, peerId.get(), keyword);
-        for (var m : results) {
-            sendData(ProtocolConstants.searchItem(m.senderName(), m.receiverName(), m.text(), m.sentAt()));
-        }
-        sendData(ProtocolConstants.searchEnd());
+        userRepo.findByUsernameIgnoreCase(peer).ifPresent(peerEntity -> {
+            var results = msgRepo.searchMessages(userEntity, peerEntity, keyword);
+            for (var m : results) {
+                String receiverName = m.getReceiver() != null ? m.getReceiver().getUsername() : "all";
+                sendData(ProtocolConstants.searchItem(
+                        m.getSender().getUsername(),
+                        receiverName,
+                        m.getText(),
+                        m.getSentAt().toString()));
+            }
+            sendData(ProtocolConstants.searchEnd());
+        });
     }
-
-    // ── Утилиты ──────────────────────────────────────────────────────────
 
     private void broadcastUserList() {
         String csv;

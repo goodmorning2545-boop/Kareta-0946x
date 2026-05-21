@@ -1,7 +1,7 @@
 package ru.gr0946x.net;
 
-import ru.gr0946x.net.db.MessageRepository;
-import ru.gr0946x.net.db.UserRepository;
+import ru.gr0946x.net.repository.MessageRepository;
+import ru.gr0946x.net.repository.UserRepository;
 
 import java.io.IOException;
 import java.net.ServerSocket;

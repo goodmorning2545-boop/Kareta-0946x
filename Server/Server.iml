@@ -14,6 +14,8 @@
     <orderEntry type="library" name="slf4j.api" level="project" />
     <orderEntry type="library" name="jakarta.persistence.api" level="project" />
     <orderEntry type="library" name="xerial.sqlite.jdbc" level="project" />
-    <orderEntry type="library" name="springframework.spring.jdbc" level="project" />
+    <orderEntry type="library" name="slf4j.simple" level="project" />
+    <orderEntry type="library" name="hibernate.orm.community.dialects" level="project" />
+    <orderEntry type="library" name="mindrot.jbcrypt" level="project" />
   </component>
 </module>

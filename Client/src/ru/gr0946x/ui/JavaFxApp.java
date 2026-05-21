@@ -10,9 +10,17 @@ import ru.gr0946x.net.ProtocolConstants;
 
 public class JavaFxApp extends Application {
 
+    private JavaFxUi ui;
+    private Client client;
+
     @Override
     public void start(Stage stage) throws Exception {
-        Client client = new Client("localhost", 9460);
+        ui     = new JavaFxUi();
+        client = new Client("localhost", 9460);
+
+        // Связываем UI и клиент
+        ui.addUserDataListener(client::sendData);
+        client.addDataListener((data, type) -> ui.showInfo(data, type));
         client.start();
 
         FXMLLoader loader = new FXMLLoader(getClass().getResource("/login.fxml"));

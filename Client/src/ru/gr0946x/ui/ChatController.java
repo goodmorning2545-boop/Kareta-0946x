@@ -3,7 +3,6 @@ package ru.gr0946x.ui;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
-import javafx.stage.Stage;
 import ru.gr0946x.net.Client;
 import ru.gr0946x.net.MessageType;
 import ru.gr0946x.net.ProtocolConstants;
@@ -33,7 +32,10 @@ public class ChatController {
         // Клик по пользователю в списке
         userList.getSelectionModel().selectedItemProperty().addListener(
                 (obs, old, selected) -> {
-                    if (selected != null) selectPeer(selected);
+                    if (selected != null) {
+                        currentPeer = null; // сбрасываем чтобы selectPeer всегда сработал
+                        selectPeer(selected);
+                    }
                 });
 
         // Enter в поле ввода
@@ -45,17 +47,17 @@ public class ChatController {
     @FXML
     private void onSelectBroadcast() {
         currentPeer = null;
-        chatWithLabel.setText("📢 Все пользователи");
+        chatWithLabel.setText("Все пользователи");
         messageList.getItems().clear();
         userList.getSelectionModel().clearSelection();
     }
 
     private void selectPeer(String peer) {
-        if (peer.equals(myUsername)) return;
+        if (peer.equalsIgnoreCase(myUsername)) return;
         currentPeer = peer;
         chatWithLabel.setText("💬 " + peer);
         messageList.getItems().clear();
-        // Запрашиваем историю
+        searchField.clear();
         client.sendData(ProtocolConstants.historyRequest(peer));
     }
 

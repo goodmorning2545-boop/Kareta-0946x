@@ -7,5 +7,4 @@ import java.util.function.Consumer;
 public interface Ui {
     void showInfo(String data, MessageType type);
     void addUserDataListener(Consumer<String> listener);
-    void removeUserDataListener(Consumer<String> listener);
 }
